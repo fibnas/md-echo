@@ -44,3 +44,6 @@ assets/
 
 /temp/
 /md_specs/
+
+Cargo.toml.orig
+

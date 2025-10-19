@@ -2061,7 +2061,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "md-live"
+name = "md-echo"
 version = "0.0.1"
 dependencies = [
  "eframe",

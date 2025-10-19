@@ -8,6 +8,8 @@ target/
 .env
 *.env
 .DS_Store
+.idea/
+.vscode/
 
 # Large assets or screenshots
 *.png
@@ -20,6 +22,9 @@ target/
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
+*.orig
 
 # Backup or system files
 *.tmp
@@ -39,4 +44,3 @@ assets/
 
 /temp/
 /md_specs/
-

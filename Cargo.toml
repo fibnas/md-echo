@@ -1,8 +1,8 @@
 [package]
 name = "md-echo"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
-description = "Minimalist dual-pane Markdown editor & previewer built with egui and eframe"
+description = "Minimalist dual-pane Markdown editor & real time preview built with egui and eframe"
 license = "MIT"
 repository = "https://github.com/fibnas/md-echo"
 categories = ["command-line-utilities"]

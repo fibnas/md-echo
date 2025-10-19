@@ -7,7 +7,7 @@
 
 ---
 
-`md-echo` is a fast, native Markdown editor written in Rust using [`eframe`](https://docs.rs/eframe) and [`egui`](https://docs.rs/egui).  
+`md-echo` is a fast, native Markdown editor written in Rust using [`eframe`](https://docs.rs/eframe) and [`egui`](https://docs.rs/egui).
 It displays **side-by-side editing and live preview** of Markdown with CommonMark compliance — perfect for quick note editing, technical docs, or journaling.
 
 ---
@@ -67,6 +67,25 @@ Then:
 - Type Markdown in the left pane.
 - Watch the formatted output update instantly in the right pane.
 - Use the File menu or shortcuts to open/save documents.
+
+---
+
+### Opening a File from the Command Line
+
+`md-echo` can open a file directly when you pass it as an argument:
+
+```bash
+md-echo notes.md
+```
+
+or with a full path:
+
+```bash
+md-echo ~/projects/todo.md
+```
+
+If the file exists, it loads into the editor immediately.
+If it doesn’t, a new blank editor opens with that path ready for saving.
 
 ---
 

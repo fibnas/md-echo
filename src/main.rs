@@ -3,15 +3,34 @@ use egui::{CentralPanel, Context, TextEdit, TopBottomPanel};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use egui_extras::StripBuilder;
 use rfd::FileDialog;
+use std::env;
 use std::fs;
 
 
 fn main() -> eframe::Result<()> {
+    let args: Vec<String> = env::args().collect();
+    let app = if args.len() > 1 {
+        let file_path = &args[1];
+        match fs::read_to_string(file_path) {
+            Ok(content) => MarkdownApp {
+                content: content.clone(),
+                original_content: content,
+                file_path: Some(file_path.clone()),
+                ..Default::default()
+            },
+            Err(e) => {
+                eprintln!("Error reading file '{}': {}", file_path, e);
+                MarkdownApp::default()
+            }
+        }
+    } else {
+        MarkdownApp::default()
+    };
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "md-echo - edit/preview",
         options,
-        Box::new(|_cc| Box::<MarkdownApp>::default()),
+        Box::new(move |_cc| Box::new(app)),
     )
 }
 

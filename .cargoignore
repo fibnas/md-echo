@@ -36,3 +36,7 @@ entries.json
 notes/
 screenshots/
 assets/
+
+/temp/
+/md_specs/
+

@@ -9,7 +9,7 @@ use std::fs;
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions::default();
     eframe::run_native(
-        "Stallion Markdown",
+        "md-echo - edit/preview",
         options,
         Box::new(|_cc| Box::<MarkdownApp>::default()),
     )
@@ -187,7 +187,6 @@ impl eframe::App for MarkdownApp {
 
                                     let response = editor_output.response;
 
-                                    // keep cursor visible while typing
                                     if response.has_focus() {
                                         if let Some(cursor_range) = editor_output.cursor_range {
                                             self.current_line = cursor_range.primary.rcursor.row;
@@ -201,7 +200,6 @@ impl eframe::App for MarkdownApp {
                         self.scroll_left = scroll.state.offset.y;
                     });
 
-                    // RIGHT: Markdown preview, synced with cursor line
                     strip.cell(|ui| {
                         let line_height = ui.text_style_height(&egui::TextStyle::Body);
                         let target_scroll_y = self.current_line as f32 * line_height;

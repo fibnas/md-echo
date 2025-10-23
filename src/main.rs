@@ -1,3 +1,4 @@
+use directories::ProjectDirs;
 use eframe::egui;
 use egui::{CentralPanel, Context, TextEdit, TopBottomPanel};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
@@ -5,7 +6,7 @@ use egui_extras::StripBuilder;
 use rfd::FileDialog;
 use std::env;
 use std::fs;
-
+use std::path::{Path, PathBuf};
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -38,6 +39,8 @@ struct MarkdownApp {
     content: String,
     original_content: String,
     file_path: Option<String>,
+    working_dir: PathBuf,
+    config_path: Option<PathBuf>,
     cache: CommonMarkCache,
     modified: bool,
     show_exit_confirm: bool,
@@ -51,14 +54,15 @@ struct MarkdownApp {
     current_line: usize,
 }
 
-
-
 impl Default for MarkdownApp {
     fn default() -> Self {
+        let (working_dir, config_path) = MarkdownApp::initial_working_directory();
         Self {
             content: String::new(),
             original_content: String::new(),
             file_path: None,
+            working_dir,
+            config_path,
             cache: CommonMarkCache::default(),
             modified: false,
             show_exit_confirm: false,
@@ -117,12 +121,7 @@ impl eframe::App for MarkdownApp {
                     if ui.button("Open").clicked() {
                         if self.confirm_discard(ui) {
                             if let Some(path) = FileDialog::new().pick_file() {
-                                if let Ok(data) = fs::read_to_string(&path) {
-                                    self.content = data.clone();
-                                    self.original_content = data;
-                                    self.file_path = Some(path.display().to_string());
-                                    self.modified = false;
-                                }
+                                self.open_file_from_path(&path);
                             }
                         }
                         ui.close_menu();
@@ -171,12 +170,7 @@ impl eframe::App for MarkdownApp {
                 self.pending_open = false;
                 if self.confirm_discard(ui) {
                     if let Some(path) = FileDialog::new().pick_file() {
-                        if let Ok(data) = fs::read_to_string(&path) {
-                            self.content = data.clone();
-                            self.original_content = data;
-                            self.file_path = Some(path.display().to_string());
-                            self.modified = false;
-                        }
+                        self.open_file_from_path(&path);
                     }
                 }
             }
@@ -190,10 +184,17 @@ impl eframe::App for MarkdownApp {
             }
 
             StripBuilder::new(ui)
-                .size(egui_extras::Size::relative(0.5))
-                .size(egui_extras::Size::relative(0.5))
+                .size(egui_extras::Size::relative(0.25).at_least(160.0))
+                .size(egui_extras::Size::relative(0.35))
+                .size(egui_extras::Size::relative(0.40))
                 .horizontal(|mut strip| {
-                    // LEFT: Editor inside ScrollArea
+                    strip.cell(|ui| {
+                        ui.vertical(|ui| {
+                            self.show_file_tree(ui);
+                        });
+                    });
+
+                    // MIDDLE: Editor inside ScrollArea
                     strip.cell(|ui| {
                         let scroll =
                             egui::ScrollArea::vertical()
@@ -219,6 +220,7 @@ impl eframe::App for MarkdownApp {
                         self.scroll_left = scroll.state.offset.y;
                     });
 
+                    // RIGHT: Preview
                     strip.cell(|ui| {
                         let line_height = ui.text_style_height(&egui::TextStyle::Body);
                         let target_scroll_y = self.current_line as f32 * line_height;
@@ -276,6 +278,157 @@ impl eframe::App for MarkdownApp {
 }
 
 impl MarkdownApp {
+    fn initial_working_directory() -> (PathBuf, Option<PathBuf>) {
+        let default_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let config_path = MarkdownApp::config_file_path();
+
+        if let Some(path) = &config_path {
+            if let Ok(contents) = fs::read_to_string(path) {
+                let candidate = PathBuf::from(contents.trim());
+                if candidate.is_dir() {
+                    return (candidate, config_path);
+                }
+            }
+        }
+
+        (default_dir, config_path)
+    }
+
+    fn config_file_path() -> Option<PathBuf> {
+        ProjectDirs::from("com", "fibnas", "md-echo")
+            .map(|dirs| dirs.config_dir().join("settings.txt"))
+    }
+
+    fn save_working_directory(&self) {
+        if let Some(config_path) = &self.config_path {
+            if let Some(parent) = config_path.parent() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!("Config directory error: {}", err);
+                    return;
+                }
+            }
+
+            if let Err(err) = fs::write(config_path, self.working_dir.display().to_string()) {
+                eprintln!("Config write error: {}", err);
+            }
+        }
+    }
+
+    fn set_working_directory(&mut self, new_dir: PathBuf) {
+        if new_dir.is_dir() {
+            self.working_dir = new_dir;
+            self.save_working_directory();
+        } else {
+            eprintln!("Invalid working directory: {}", new_dir.display());
+        }
+    }
+
+    fn show_file_tree(&mut self, ui: &mut egui::Ui) {
+        ui.label("Working Directory");
+        ui.monospace(self.working_dir.display().to_string());
+
+        if ui.button("Change...").clicked() {
+            let mut dialog = FileDialog::new();
+            if self.working_dir.is_dir() {
+                dialog = dialog.set_directory(&self.working_dir);
+            }
+            if let Some(path) = dialog.pick_folder() {
+                self.set_working_directory(path);
+            }
+        }
+
+        ui.separator();
+
+        if !self.working_dir.is_dir() {
+            ui.label("Working directory is unavailable.");
+            return;
+        }
+
+        let root_dir = self.working_dir.clone();
+        egui::ScrollArea::vertical()
+            .auto_shrink([false; 2])
+            .show(ui, |ui| {
+                self.render_directory(ui, &root_dir, true);
+            });
+    }
+
+    fn render_directory(&mut self, ui: &mut egui::Ui, path: &Path, is_root: bool) {
+        let name = if is_root {
+            path.display().to_string()
+        } else {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.display().to_string())
+        };
+
+        let header = egui::CollapsingHeader::new(name)
+            .id_source(path.display().to_string())
+            .default_open(is_root);
+
+        header.show(ui, |ui| match fs::read_dir(path) {
+            Ok(entries) => {
+                let mut directories = Vec::new();
+                let mut files = Vec::new();
+
+                for entry in entries.flatten() {
+                    let entry_path = entry.path();
+                    if entry_path.is_dir() {
+                        directories.push(entry_path);
+                    } else {
+                        files.push(entry_path);
+                    }
+                }
+
+                directories.sort();
+                files.sort();
+
+                for dir in directories {
+                    self.render_directory(ui, &dir, false);
+                }
+
+                for file in files {
+                    let file_name = file
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .unwrap_or_else(|| file.display().to_string());
+
+                    let file_path_string = file.display().to_string();
+                    let is_selected = self
+                        .file_path
+                        .as_deref()
+                        .map(|current| current == file_path_string.as_str())
+                        .unwrap_or(false);
+
+                    let response = ui
+                        .selectable_label(is_selected, file_name)
+                        .on_hover_text(file_path_string);
+                    if response.clicked() {
+                        if !self.modified || self.confirm_discard(ui) {
+                            self.open_file_from_path(&file);
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                ui.label(format!("Cannot read {}: {}", path.display(), err));
+            }
+        });
+    }
+
+    fn open_file_from_path(&mut self, path: &Path) {
+        match fs::read_to_string(path) {
+            Ok(data) => {
+                self.content = data.clone();
+                self.original_content = data;
+                self.file_path = Some(path.display().to_string());
+                self.modified = false;
+            }
+            Err(err) => {
+                eprintln!("Error reading file '{}': {}", path.display(), err);
+            }
+        }
+    }
+
     fn save_file(&mut self, save_as: bool) {
         if save_as || self.file_path.is_none() {
             if let Some(path) = FileDialog::new().save_file() {

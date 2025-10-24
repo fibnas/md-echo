@@ -10,6 +10,8 @@
 `md-echo` is a fast, native Markdown editor written in Rust using [`eframe`](https://docs.rs/eframe) and [`egui`](https://docs.rs/egui).
 It displays **side-by-side editing and live preview** of Markdown with CommonMark compliance — perfect for quick note editing, technical docs, or journaling.
 
+![md-echo dual-pane editor screenshot](assets/mdecho-screengrab.png)
+
 ---
 
 ## Features
@@ -24,6 +26,8 @@ It displays **side-by-side editing and live preview** of Markdown with CommonMar
   - Ctrl+S — Save
   - Ctrl+Shift+S — Save As
   - Ctrl+Q — Quit
+- Configurable Theme & Workspace: Customize colors, accent, and default working directory via `config.toml`.
+- Markdown Tooling: Run linter (Ctrl+Shift+L) and formatter (Ctrl+Shift+F) commands with in-app output.
 - Status Bar: Shows file name, save state, and character count.
 
 ---
@@ -67,6 +71,7 @@ Then:
 - Type Markdown in the left pane.
 - Watch the formatted output update instantly in the right pane.
 - Use the File menu or shortcuts to open/save documents.
+- Use the Tools menu or `Ctrl+Shift+L / Ctrl+Shift+F` to lint or format with your configured commands.
 
 ---
 
@@ -86,6 +91,38 @@ md-echo ~/projects/todo.md
 
 If the file exists, it loads into the editor immediately.
 If it doesn’t, a new blank editor opens with that path ready for saving.
+
+---
+
+## Configuration & Customization
+
+`md-echo` looks for an optional config file at `~/.config/md-echo/config.toml`. Copy `docs/config.example.toml` to that location as a starting point:
+
+```bash
+mkdir -p ~/.config/md-echo
+cp docs/config.example.toml ~/.config/md-echo/config.toml
+```
+
+- **Working Directory**: Set `working_dir` to choose the initial folder for the file tree.
+- **Colors & Theme**: Adjust the `[theme]` table to switch between `dark`/`light` presets and override hex colors:
+
+  ```toml
+  [theme]
+  base = "dark"
+  background = "#1E1E2E"
+  text = "#CDD6F4"
+  accent = "#89B4FA"
+  ```
+
+- **Markdown Lint & Format**: Configure `[tools]` entries with the command arrays to run. Defaults use [`rumdl`](https://github.com/fibnas/rumdl) if available:
+
+  ```toml
+  [tools]
+  lint = ["rumdl", "check"]
+  format = ["rumdl", "fmt"]
+  ```
+
+  Trigger these commands from the Tools menu or with `Ctrl+Shift+L` / `Ctrl+Shift+F`. Results (and formatter output) appear in the Tool Output window.
 
 ---
 

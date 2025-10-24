@@ -18,6 +18,9 @@ target/
 *.gif
 *.mp4
 
+# Except those in assets/
+!assets/**
+
 # IDE and editor cruft
 .vscode/
 .idea/
@@ -40,10 +43,9 @@ entries.json
 # Docs or notes not needed on crates.io
 notes/
 screenshots/
-assets/
 
-/temp/
-/md_specs/
+temp/
+md_specs/
 
 Cargo.toml.orig
 

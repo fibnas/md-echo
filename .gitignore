@@ -17,7 +17,7 @@ logs/
 tests/tmp/
 
 # === Media / large files ===
-*.png
+
 *.jpg
 *.jpeg
 *.gif

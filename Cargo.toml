@@ -1,6 +1,6 @@
 [package]
 name = "md-echo"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 description = "Minimalist dual-pane Markdown editor & real time preview built with egui and eframe"
 license = "MIT"
@@ -8,7 +8,7 @@ repository = "https://github.com/fibnas/md-echo"
 categories = ["command-line-utilities"]
 keywords = ["editor", "tui", "organization", "productivity", "markdown"]
 readme = "README.md"
-exclude = ["target/", "entries.json", "screenshots/", "assets/"]
+exclude = ["target/", "entries.json", "screenshots/"]
 
 [dependencies]
 eframe          = "0.27"

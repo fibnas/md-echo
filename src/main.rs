@@ -1,12 +1,16 @@
 use directories::ProjectDirs;
 use eframe::egui;
-use egui::{CentralPanel, Context, TextEdit, TopBottomPanel};
+use egui::{CentralPanel, Color32, Context, TextEdit, TopBottomPanel, Visuals};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use egui_extras::StripBuilder;
 use rfd::FileDialog;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use tempfile::NamedTempFile;
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -41,6 +45,7 @@ struct MarkdownApp {
     file_path: Option<String>,
     working_dir: PathBuf,
     config_path: Option<PathBuf>,
+    config: AppConfig,
     cache: CommonMarkCache,
     modified: bool,
     show_exit_confirm: bool,
@@ -49,20 +54,155 @@ struct MarkdownApp {
     pending_save: bool,
     pending_save_as: bool,
     pending_exit: bool,
+    pending_lint: bool,
+    pending_format: bool,
+    tool_output: Option<String>,
+    show_tool_output: bool,
+    theme_applied: bool,
     scroll_left: f32,
     scroll_right: f32,
     current_line: usize,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+struct AppConfig {
+    working_dir: Option<PathBuf>,
+    theme: ThemeConfig,
+    tools: ToolsConfig,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            working_dir: None,
+            theme: ThemeConfig::default(),
+            tools: ToolsConfig::default(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+struct ThemeConfig {
+    base: String,
+    background: Option<String>,
+    panel: Option<String>,
+    text: Option<String>,
+    accent: Option<String>,
+    hyperlink: Option<String>,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            base: "dark".to_string(),
+            background: None,
+            panel: None,
+            text: None,
+            accent: None,
+            hyperlink: None,
+        }
+    }
+}
+
+impl ThemeConfig {
+    fn to_visuals(&self) -> Visuals {
+        let mut visuals = match self.base.to_lowercase().as_str() {
+            "light" => Visuals::light(),
+            _ => Visuals::dark(),
+        };
+
+        if let Some(color) = self
+            .background
+            .as_deref()
+            .and_then(|value| parse_color(value))
+        {
+            visuals.window_fill = color;
+            visuals.panel_fill = color;
+            visuals.extreme_bg_color = color;
+        }
+
+        if let Some(color) = self.panel.as_deref().and_then(|value| parse_color(value)) {
+            visuals.panel_fill = color;
+        }
+
+        if let Some(color) = self.text.as_deref().and_then(|value| parse_color(value)) {
+            visuals.override_text_color = Some(color);
+        }
+
+        if let Some(color) = self.accent.as_deref().and_then(|value| parse_color(value)) {
+            visuals.selection.bg_fill = color;
+            visuals.widgets.active.bg_fill = color;
+            visuals.widgets.hovered.bg_fill = color;
+            visuals.hyperlink_color = color;
+        }
+
+        if let Some(color) = self
+            .hyperlink
+            .as_deref()
+            .and_then(|value| parse_color(value))
+        {
+            visuals.hyperlink_color = color;
+        }
+
+        visuals
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+struct ToolsConfig {
+    lint: Option<Vec<String>>,
+    format: Option<Vec<String>>,
+}
+
+impl Default for ToolsConfig {
+    fn default() -> Self {
+        Self {
+            lint: default_lint_command(),
+            format: default_format_command(),
+        }
+    }
+}
+
+fn default_lint_command() -> Option<Vec<String>> {
+    Some(vec!["rumdl".to_string(), "check".to_string()])
+}
+
+fn default_format_command() -> Option<Vec<String>> {
+    Some(vec!["rumdl".to_string(), "fmt".to_string()])
+}
+
+fn parse_color(value: &str) -> Option<Color32> {
+    let hex = value.trim().trim_start_matches('#');
+    if hex.len() == 6 {
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        Some(Color32::from_rgb(r, g, b))
+    } else if hex.len() == 8 {
+        let a = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let r = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let g = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        let b = u8::from_str_radix(&hex[6..8], 16).ok()?;
+        Some(Color32::from_rgba_unmultiplied(r, g, b, a))
+    } else {
+        None
+    }
+}
+
 impl Default for MarkdownApp {
     fn default() -> Self {
-        let (working_dir, config_path) = MarkdownApp::initial_working_directory();
-        Self {
+        let (mut config, config_path) = MarkdownApp::load_config();
+        let working_dir = MarkdownApp::initial_working_directory(&mut config);
+        let app = Self {
             content: String::new(),
             original_content: String::new(),
             file_path: None,
             working_dir,
             config_path,
+            config,
             cache: CommonMarkCache::default(),
             modified: false,
             show_exit_confirm: false,
@@ -71,15 +211,32 @@ impl Default for MarkdownApp {
             pending_save: false,
             pending_save_as: false,
             pending_exit: false,
+            pending_lint: false,
+            pending_format: false,
+            tool_output: None,
+            show_tool_output: false,
+            theme_applied: false,
             scroll_left: 0.0,
             scroll_right: 0.0,
             current_line: 0,
+        };
+
+        if app
+            .config_path
+            .as_ref()
+            .map(|path| !path.exists())
+            .unwrap_or(false)
+        {
+            app.save_config();
         }
+
+        app
     }
 }
 
 impl eframe::App for MarkdownApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        self.ensure_theme(ctx);
         // Handle hotkeys
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Q) && i.modifiers.ctrl {
@@ -101,6 +258,12 @@ impl eframe::App for MarkdownApp {
                 } else {
                     self.pending_save = true;
                 }
+            }
+            if i.key_pressed(egui::Key::L) && i.modifiers.ctrl && i.modifiers.shift {
+                self.pending_lint = true;
+            }
+            if i.key_pressed(egui::Key::F) && i.modifiers.ctrl && i.modifiers.shift {
+                self.pending_format = true;
             }
         });
 
@@ -147,6 +310,17 @@ impl eframe::App for MarkdownApp {
                         }
                     }
                 });
+
+                ui.menu_button("Tools", |ui| {
+                    if ui.button("Lint Markdown	Ctrl+Shift+L").clicked() {
+                        self.pending_lint = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("Format Markdown	Ctrl+Shift+F").clicked() {
+                        self.pending_format = true;
+                        ui.close_menu();
+                    }
+                });
             });
         });
 
@@ -181,6 +355,14 @@ impl eframe::App for MarkdownApp {
             if self.pending_save_as {
                 self.pending_save_as = false;
                 self.save_file(true);
+            }
+            if self.pending_lint {
+                self.pending_lint = false;
+                self.run_lint_tool();
+            }
+            if self.pending_format {
+                self.pending_format = false;
+                self.run_format_tool();
             }
 
             StripBuilder::new(ui)
@@ -253,6 +435,24 @@ impl eframe::App for MarkdownApp {
             });
         });
 
+        if self.show_tool_output {
+            let mut open = true;
+            egui::Window::new("Tool Output")
+                .open(&mut open)
+                .resizable(true)
+                .vscroll(true)
+                .show(ctx, |ui| {
+                    if let Some(output) = &self.tool_output {
+                        ui.monospace(output);
+                    } else {
+                        ui.label("No output available.");
+                    }
+                });
+            if !open {
+                self.show_tool_output = false;
+            }
+        }
+
         // ==== EXIT CONFIRMATION ====
         if self.show_exit_confirm {
             egui::Window::new("Unsaved Changes")
@@ -278,28 +478,59 @@ impl eframe::App for MarkdownApp {
 }
 
 impl MarkdownApp {
-    fn initial_working_directory() -> (PathBuf, Option<PathBuf>) {
-        let default_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    fn load_config() -> (AppConfig, Option<PathBuf>) {
         let config_path = MarkdownApp::config_file_path();
+        let mut config = AppConfig::default();
 
         if let Some(path) = &config_path {
-            if let Ok(contents) = fs::read_to_string(path) {
-                let candidate = PathBuf::from(contents.trim());
-                if candidate.is_dir() {
-                    return (candidate, config_path);
+            if path.exists() {
+                match fs::read_to_string(path) {
+                    Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
+                        Ok(parsed) => config = parsed,
+                        Err(err) => eprintln!("Config parse error ({}): {}", path.display(), err),
+                    },
+                    Err(err) => eprintln!("Config read error ({}): {}", path.display(), err),
                 }
             }
         }
 
-        (default_dir, config_path)
+        if config.working_dir.is_none() {
+            if let Some(legacy_path) = MarkdownApp::legacy_settings_path() {
+                if let Ok(contents) = fs::read_to_string(&legacy_path) {
+                    let candidate = PathBuf::from(contents.trim());
+                    if candidate.is_dir() {
+                        config.working_dir = Some(candidate);
+                    }
+                }
+            }
+        }
+
+        (config, config_path)
+    }
+
+    fn initial_working_directory(config: &mut AppConfig) -> PathBuf {
+        if let Some(dir) = &config.working_dir {
+            if dir.is_dir() {
+                return dir.clone();
+            }
+        }
+
+        let default_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        config.working_dir = Some(default_dir.clone());
+        default_dir
     }
 
     fn config_file_path() -> Option<PathBuf> {
         ProjectDirs::from("com", "fibnas", "md-echo")
+            .map(|dirs| dirs.config_dir().join("config.toml"))
+    }
+
+    fn legacy_settings_path() -> Option<PathBuf> {
+        ProjectDirs::from("com", "fibnas", "md-echo")
             .map(|dirs| dirs.config_dir().join("settings.txt"))
     }
 
-    fn save_working_directory(&self) {
+    fn save_config(&self) {
         if let Some(config_path) = &self.config_path {
             if let Some(parent) = config_path.parent() {
                 if let Err(err) = fs::create_dir_all(parent) {
@@ -308,16 +539,31 @@ impl MarkdownApp {
                 }
             }
 
-            if let Err(err) = fs::write(config_path, self.working_dir.display().to_string()) {
-                eprintln!("Config write error: {}", err);
+            match toml::to_string_pretty(&self.config) {
+                Ok(serialized) => {
+                    if let Err(err) = fs::write(config_path, serialized) {
+                        eprintln!("Config write error: {}", err);
+                    }
+                }
+                Err(err) => eprintln!("Config serialize error: {}", err),
             }
         }
     }
 
+    fn ensure_theme(&mut self, ctx: &Context) {
+        if self.theme_applied {
+            return;
+        }
+        let visuals = self.config.theme.to_visuals();
+        ctx.set_visuals(visuals);
+        self.theme_applied = true;
+    }
+
     fn set_working_directory(&mut self, new_dir: PathBuf) {
         if new_dir.is_dir() {
-            self.working_dir = new_dir;
-            self.save_working_directory();
+            self.working_dir = new_dir.clone();
+            self.config.working_dir = Some(new_dir);
+            self.save_config();
         } else {
             eprintln!("Invalid working directory: {}", new_dir.display());
         }
@@ -413,6 +659,120 @@ impl MarkdownApp {
                 ui.label(format!("Cannot read {}: {}", path.display(), err));
             }
         });
+    }
+
+    fn run_lint_tool(&mut self) {
+        match self.config.tools.lint.clone() {
+            Some(command) => self.run_external_tool(&command, false),
+            None => self.show_tool_message(
+                "No lint command configured. Add a [tools] lint entry to config.toml.",
+            ),
+        }
+    }
+
+    fn run_format_tool(&mut self) {
+        match self.config.tools.format.clone() {
+            Some(command) => self.run_external_tool(&command, true),
+            None => self.show_tool_message(
+                "No format command configured. Add a [tools] format entry to config.toml.",
+            ),
+        }
+    }
+
+    fn run_external_tool(&mut self, command: &[String], modifies_content: bool) {
+        if command.is_empty() {
+            self.show_tool_message("Configured tool command is empty.");
+            return;
+        }
+
+        let mut temp_file = match self.create_temp_markdown() {
+            Ok(file) => file,
+            Err(err) => {
+                self.show_tool_message(format!("Failed to prepare temp file: {}", err));
+                return;
+            }
+        };
+
+        let temp_path = temp_file.path().to_path_buf();
+        let mut cmd = Command::new(&command[0]);
+        for arg in &command[1..] {
+            cmd.arg(arg);
+        }
+        if self.working_dir.is_dir() {
+            cmd.current_dir(&self.working_dir);
+        }
+        cmd.arg(&temp_path);
+
+        let output = match cmd.output() {
+            Ok(output) => output,
+            Err(err) => {
+                self.show_tool_message(format!("Failed to run '{}': {}", command[0], err));
+                return;
+            }
+        };
+
+        if let Err(err) = temp_file.flush() {
+            eprintln!("Temp file flush error: {}", err);
+        }
+
+        let mut message = String::new();
+        message.push_str(&format!(
+            "$ {}\n",
+            Self::format_command_for_display(command, &temp_path)
+        ));
+        message.push_str(&format!("Status: {:?}\n", output.status));
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.trim().is_empty() {
+            message.push_str("\nstdout:\n");
+            message.push_str(stdout.trim_end());
+            message.push('\n');
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.trim().is_empty() {
+            message.push_str("\nstderr:\n");
+            message.push_str(stderr.trim_end());
+            message.push('\n');
+        }
+
+        if modifies_content && output.status.success() {
+            match fs::read_to_string(&temp_path) {
+                Ok(new_content) => {
+                    if new_content != self.content {
+                        self.content = new_content;
+                        self.modified = self.content != self.original_content;
+                    }
+                }
+                Err(err) => {
+                    message.push_str(&format!(
+                        "\nFormat note: failed to read temp output ({}): {}\n",
+                        temp_path.display(),
+                        err
+                    ));
+                }
+            }
+        }
+
+        self.show_tool_message(message);
+    }
+
+    fn format_command_for_display(command: &[String], path: &Path) -> String {
+        let mut parts = command.to_vec();
+        parts.push(path.display().to_string());
+        parts.join(" ")
+    }
+
+    fn create_temp_markdown(&self) -> std::io::Result<NamedTempFile> {
+        let mut file = NamedTempFile::new()?;
+        file.write_all(self.content.as_bytes())?;
+        file.flush()?;
+        Ok(file)
+    }
+
+    fn show_tool_message<S: Into<String>>(&mut self, message: S) {
+        self.tool_output = Some(message.into());
+        self.show_tool_output = true;
     }
 
     fn open_file_from_path(&mut self, path: &Path) {

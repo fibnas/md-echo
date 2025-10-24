@@ -1,0 +1,34 @@
+# Example md-echo configuration
+# Copy this file to ~/.config/md-echo/config.toml (create directories as needed)
+
+# Optional path to set the initial working directory used by the file tree.
+# Remove or comment out this field to fall back to the current directory on launch.
+working_dir = "/home/you/notes"
+
+[theme]
+# Base visual preset: "dark" (default) or "light".
+base = "dark"
+
+# Override panel/background colors with hex strings (with or without leading #).
+# Supported formats: RRGGBB or AARRGGBB.
+background = "#1E1E2E"
+panel = "#11111B"
+
+# Override the default text color (RRGGBB or AARRGGBB).
+text = "#CDD6F4"
+
+# Accent color applied to selections, hovered elements, and (by default) hyperlinks.
+accent = "#89B4FA"
+
+# Optional explicit hyperlink color. When omitted, `accent` (or egui default) is used.
+hyperlink = "#F38BA8"
+
+[tools]
+# Commands are arrays executed with the temporary markdown file path appended.
+# The working directory is set to the configured/active working_dir when present.
+
+# Markdown linter command (Ctrl+Shift+L). Comment out to disable linting.
+lint = ["rumdl", "check"]
+
+# Markdown formatter command (Ctrl+Shift+F). Comment out to disable formatting.
+format = ["rumdl", "fmt"]

@@ -1,0 +1,19 @@
+working_dir = "~/Documents"
+
+[theme]
+base = "dark"
+background = "#403d1c"
+panel = "#1c1b0d"
+text = "#f5f5f5"
+accent = "#b8860b"
+hyperlink = "#1e90ff"
+
+[tools]
+lint = [
+    "rumdl",
+    "check",
+]
+format = [
+    "rumdl",
+    "fmt",
+]

@@ -2083,7 +2083,7 @@ dependencies = [
 
 [[package]]
 name = "md-echo"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "directories",
  "eframe",

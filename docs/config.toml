@@ -13,7 +13,9 @@ lint = [
     "rumdl",
     "check",
 ]
+lint_use_open_file = false
 format = [
     "rumdl",
     "fmt",
 ]
+format_use_open_file = false

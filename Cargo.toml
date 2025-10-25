@@ -1,6 +1,6 @@
 [package]
 name = "md-echo"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "Minimalist dual-pane Markdown editor & real time preview built with egui and eframe"
 license = "MIT"

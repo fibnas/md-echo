@@ -124,10 +124,14 @@ cp docs/config.example.toml ~/.config/md-echo/config.toml
   ```toml
   [tools]
   lint = ["rumdl", "check"]
+  lint_use_open_file = false
   format = ["rumdl", "fmt"]
+  format_use_open_file = false
   ```
 
   Trigger these commands from the Tools menu or with `Ctrl+Shift+L` / `Ctrl+Shift+F`. Results (and formatter output) appear in the Tool Output window.
+
+- **Use the current file**: Set `lint_use_open_file` or `format_use_open_file` to `true` to execute the command against the file open in md-echo instead of a temporary buffer. The file must be saved (no pending edits) before running these modes.
 
 ---
 

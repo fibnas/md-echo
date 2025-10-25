@@ -10,7 +10,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tempfile::NamedTempFile;
+use tempfile::{Builder, NamedTempFile};
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -154,14 +154,18 @@ impl ThemeConfig {
 #[serde(default)]
 struct ToolsConfig {
     lint: Option<Vec<String>>,
+    lint_use_open_file: bool,
     format: Option<Vec<String>>,
+    format_use_open_file: bool,
 }
 
 impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
             lint: default_lint_command(),
+            lint_use_open_file: false,
             format: default_format_command(),
+            format_use_open_file: false,
         }
     }
 }
@@ -663,7 +667,9 @@ impl MarkdownApp {
 
     fn run_lint_tool(&mut self) {
         match self.config.tools.lint.clone() {
-            Some(command) => self.run_external_tool(&command, false),
+            Some(command) => {
+                self.run_external_tool(&command, false, self.config.tools.lint_use_open_file)
+            }
             None => self.show_tool_message(
                 "No lint command configured. Add a [tools] lint entry to config.toml.",
             ),
@@ -672,28 +678,67 @@ impl MarkdownApp {
 
     fn run_format_tool(&mut self) {
         match self.config.tools.format.clone() {
-            Some(command) => self.run_external_tool(&command, true),
+            Some(command) => {
+                self.run_external_tool(&command, true, self.config.tools.format_use_open_file)
+            }
             None => self.show_tool_message(
                 "No format command configured. Add a [tools] format entry to config.toml.",
             ),
         }
     }
 
-    fn run_external_tool(&mut self, command: &[String], modifies_content: bool) {
+    fn run_external_tool(
+        &mut self,
+        command: &[String],
+        modifies_content: bool,
+        use_current_file: bool,
+    ) {
         if command.is_empty() {
             self.show_tool_message("Configured tool command is empty.");
             return;
         }
 
-        let mut temp_file = match self.create_temp_markdown() {
-            Ok(file) => file,
-            Err(err) => {
-                self.show_tool_message(format!("Failed to prepare temp file: {}", err));
+        let mut temp_file: Option<NamedTempFile> = None;
+        let target_path = if use_current_file {
+            if self.modified {
+                self.show_tool_message(
+                    "Save before running this tool on the current file, or disable *_use_open_file.",
+                );
                 return;
             }
+            match self.file_path.as_ref() {
+                Some(path_str) => {
+                    let path = PathBuf::from(path_str);
+                    if path.is_file() {
+                        path
+                    } else {
+                        self.show_tool_message(format!(
+                            "Current file path '{}' is not a file.",
+                            path.display()
+                        ));
+                        return;
+                    }
+                }
+                None => {
+                    self.show_tool_message(
+                        "No file is currently open. Save the document first or disable *_use_open_file.",
+                    );
+                    return;
+                }
+            }
+        } else {
+            let file = match self.create_temp_markdown() {
+                Ok(file) => file,
+                Err(err) => {
+                    self.show_tool_message(format!("Failed to prepare temp file: {}", err));
+                    return;
+                }
+            };
+            let path = file.path().to_path_buf();
+            temp_file = Some(file);
+            path
         };
 
-        let temp_path = temp_file.path().to_path_buf();
         let mut cmd = Command::new(&command[0]);
         for arg in &command[1..] {
             cmd.arg(arg);
@@ -701,7 +746,7 @@ impl MarkdownApp {
         if self.working_dir.is_dir() {
             cmd.current_dir(&self.working_dir);
         }
-        cmd.arg(&temp_path);
+        cmd.arg(&target_path);
 
         let output = match cmd.output() {
             Ok(output) => output,
@@ -711,14 +756,16 @@ impl MarkdownApp {
             }
         };
 
-        if let Err(err) = temp_file.flush() {
-            eprintln!("Temp file flush error: {}", err);
+        if let Some(file) = temp_file.as_mut() {
+            if let Err(err) = file.flush() {
+                eprintln!("Temp file flush error: {}", err);
+            }
         }
 
         let mut message = String::new();
         message.push_str(&format!(
             "$ {}\n",
-            Self::format_command_for_display(command, &temp_path)
+            Self::format_command_for_display(command, &target_path)
         ));
         message.push_str(&format!("Status: {:?}\n", output.status));
 
@@ -737,7 +784,7 @@ impl MarkdownApp {
         }
 
         if modifies_content && output.status.success() {
-            match fs::read_to_string(&temp_path) {
+            match fs::read_to_string(&target_path) {
                 Ok(new_content) => {
                     if new_content != self.content {
                         self.content = new_content;
@@ -746,8 +793,8 @@ impl MarkdownApp {
                 }
                 Err(err) => {
                     message.push_str(&format!(
-                        "\nFormat note: failed to read temp output ({}): {}\n",
-                        temp_path.display(),
+                        "\nFormat note: failed to read formatter output ({}): {}\n",
+                        target_path.display(),
                         err
                     ));
                 }
@@ -764,7 +811,7 @@ impl MarkdownApp {
     }
 
     fn create_temp_markdown(&self) -> std::io::Result<NamedTempFile> {
-        let mut file = NamedTempFile::new()?;
+        let mut file = Builder::new().suffix(".md").tempfile()?;
         file.write_all(self.content.as_bytes())?;
         file.flush()?;
         Ok(file)

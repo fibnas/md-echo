@@ -29,6 +29,11 @@ hyperlink = "#F38BA8"
 
 # Markdown linter command (Ctrl+Shift+L). Comment out to disable linting.
 lint = ["rumdl", "check"]
+# When true, run the lint command on the current file instead of a temp buffer.
+# Requires the file to be saved before running.
+lint_use_open_file = false
 
 # Markdown formatter command (Ctrl+Shift+F). Comment out to disable formatting.
 format = ["rumdl", "fmt"]
+# When true, run the formatter on the file open in md-echo (requires saving first).
+format_use_open_file = false

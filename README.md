@@ -48,12 +48,12 @@ sudo apt install libgtk-3-dev
 
 Then install the crate:
 ```bash
-cargo install md-echo@0.0.4
+cargo install md-echo
 ```
 
 Update existing install:
 ```bash
-cargo install md-echo@0.0.4 --force
+cargo install md-echo --force
 ```
 
 Or build locally:
